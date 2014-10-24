@@ -285,6 +285,66 @@ def take_region(a, pos, start_position, stop_position):
     return a[loc, ...]
 
 
+def distance_to_nearest(pos):
+    """Find distance to nearest position.
+
+    Parameters
+    ----------
+
+    pos : array_like
+        A sorted 1-dimensional array of genomic positions from a single
+        chromosome/contig.
+
+    Returns
+    -------
+
+    distance_to_nearest : ndarray, int
+        The distance (in bp) to the nearest variant for each position in `pos`.
+        This array will have the same shape as `pos`
+
+    """
+
+    # normalise inputs
+    pos = np.asarray(pos)
+
+    # determine all distances between positions
+    distances = pos[1:] - pos[:-1]
+    nearest = np.minimum(distances[:-1], distances[1:])
+    nearest = np.insert(nearest, 0, distances[0])
+    nearest = np.append(nearest, distances[-1])
+    return nearest
+
+
+def pos_within_n(pos, n=100):
+    """Find number of other positions within a certain distance.
+
+    Parameters
+    ----------
+
+    pos : array_like
+        A sorted 1-dimensional array of genomic positions from a single
+        chromosome/contig.
+    n : int, optional
+        Distance within which to look for other positions
+
+    Returns
+    -------
+
+    pos_within_n : ndarray, int
+        The number of other positions within `n` bp for each position in `pos`.
+        This array will have the same shape as `pos`.
+
+    """
+
+    # normalise inputs
+    pos = np.asarray(pos)
+
+    def num_within_n(x, pos, n=n):
+        return np.count_nonzero((pos >= x-n) & (pos <= x+n) & (pos != x))
+    vnum_within_n = np.vectorize(num_within_n, excluded=[1])
+    return vnum_within_n(pos, pos, n)
+
+
 def plot_variant_locator(pos, step=1, ax=None, start_position=None,
                          stop_position=None, flip=False, line_args=None):
     """
@@ -357,6 +417,114 @@ def plot_variant_locator(pos, step=1, ax=None, start_position=None,
     ax.set_yticks([])
     for l in 'left', 'right':
         ax.spines[l].set_visible(False)
+
+    return ax
+
+
+def plot_regions(fwd_starts, fwd_ends, rev_starts=None, rev_ends=None,
+                 start_position=None, end_position=None, separate_fwd_rev=None,
+                 fwd_colors='k', rev_colors='k', line_color='k', width=0.3,
+                 ax=None):
+    """
+    Plot bars indicating the genome location of regions, e.g. genes.
+
+    Parameters
+    ----------
+
+    fwd_starts : array_like
+        A 1-dimensional array of genomic positions of starts of regions on the
+        forward strand (or on either strand if `separate_fwd_rev` is False) from
+        a single chromosome/contig.
+    fwd_ends : array_like
+        A 1-dimensional array of genomic positions of ends of regions on the
+        forward strand (or on either strand if `separate_fwd_rev` is False) from
+        a single chromosome/contig.
+    rev_starts : array_like
+        A 1-dimensional array of genomic positions of starts of regions on the
+        reverse strand from a single chromosome/contig.
+    rev_ends : array_like
+        A 1-dimensional array of genomic positions of ends of regions on the
+        reverse strand from a single chromosome/contig.
+    start_position : int, optional
+        The start position for the region to plot.
+    end_position : int, optional
+        The end position for the region to plot.
+    separate_fwd_rev : bool, optional
+        Whether to plot regions on forward and reverse strands separately.
+    fwd_colors : sequence, optional
+        Colors to use for regions on the forward strand.
+    rev_colors : sequence, optional
+        Colors to use for regions on the reverse strand.
+    line_color : sequence, optional
+        Colors to use for line dividing forward and reverse strands.
+    width : numeric
+        Thickness of bars depicting regions.
+    ax : axes, optional
+        The axes on which to draw. If not provided, a new figure will be
+        created.
+
+    Returns
+    -------
+
+    ax : axes
+        The axes on which the plot was drawn
+
+    """
+
+    # check input arrays
+    fwd_starts = np.asarray(fwd_starts)
+    fwd_ends = np.asarray(fwd_ends)
+    assert fwd_starts.ndim == 1
+    assert fwd_ends.ndim == 1
+    assert len(fwd_starts) == len(fwd_ends)
+    if rev_starts is not None:
+        rev_starts = np.asarray(rev_starts)
+        rev_ends = np.asarray(rev_ends)
+        assert rev_starts.ndim == 1
+        assert rev_ends.ndim == 1
+        assert len(rev_starts) == len(rev_ends)
+
+    # set up axes
+    if ax is None:
+        fig = plt.figure(figsize=(7, 1))
+        ax = fig.add_subplot(111)
+
+    # whether to plot forward and reverse strands separately
+    if separate_fwd_rev is None:
+        if rev_starts is None:
+            separate_fwd_rev = False
+        else:
+            separate_fwd_rev = True
+
+    # determine x axis limits
+    if start_position is None:
+        if rev_starts is None:
+            start_position = np.min(fwd_starts)
+        else:
+            start_position = np.min(np.concatenate(fwd_starts, rev_starts))
+    if end_position is None:
+        if rev_ends is None:
+            end_position = np.max(fwd_ends)
+        else:
+            end_position = np.max(np.concatenate(fwd_ends, rev_ends))
+    ax.set_xlim(start_position, end_position)
+    ax.set_ylim(0, 1)
+    ax.set_yticks([])
+
+    # plot the bars
+    if separate_fwd_rev:
+        ax.plot([start_position, end_position], [.5, .5], 'k-', linewidth=1,
+                color=line_color)
+        xranges_fwd = zip(fwd_starts, fwd_ends-fwd_starts)
+        ax.broken_barh(xranges_fwd, (0.5, width), color=fwd_colors)
+        xranges_rev = zip(rev_starts, rev_ends-rev_starts)
+        ax.broken_barh(xranges_rev, (0.5-width, width), color=rev_colors)
+    else:
+        xranges = zip(
+            np.concatenate(fwd_starts, rev_starts),
+            np.concatenate(fwd_ends-fwd_starts, rev_ends-rev_starts)
+        )
+        ax.broken_barh(xranges, (0.0, width), color=fwd_colors)
 
     return ax
 

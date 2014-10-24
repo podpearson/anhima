@@ -733,6 +733,340 @@ def as_012(genotypes, fill=-1):
     return gn
 
 
+def ad_as_012(ad, min_ad_for_minor_call=2, min_ad_for_major_call=5,
+              min_total_ad_for_het_call=5, hom_ref=0, het=1, hom_alt=2,
+              missing=-1):
+    """Transform allele depths (AD) to 012 genotypes recoding homozygous
+    reference calls a 0, heterozygous calls as 1, homozygous non-reference
+    calls as 2, and missing calls as -1.
+
+    Parameters
+    ----------
+
+    ad : array_like, int
+        An array of shape (`n_variants`, `n_samples`, `ploidy`) or
+        (`n_variants`, `ploidy`) or (`n_samples`, `ploidy`), where each
+        element of the array is an integer corresponding to an allele index
+        (-1 = missing, 0 = reference allele, 1 = first alternate allele,
+        2 = second alternate allele, etc.).
+    min_ad_for_minor_call: int
+        If ad is < min_ad_for_call, that allele will be considered missing
+    min_ad_for_major_call: int
+        If ad is >= min_ad_for_major_call, that allele will be considered called
+    min_total_ad_for_het_call: int
+        If both ad are >= min_ad_for_minor_call, but the sum of the two is <
+        min_total_ad_for_het_call that genotype will be considered missing
+        (and will get value of `missing`)
+    min_ad_for_call: int
+        If ad is < min_ad_for_call, that allele will be considered missing
+    hom_ref : int, optional
+        Default value for homozygous reference calls.
+    het : int, optional
+        Default value for heterozygous calls.
+    hom_alt : int, optional
+        Default value for homozygous alternative calls.
+    missing : int, optional
+        Default value for missing calls.
+
+    Returns
+    -------
+
+    gn : ndarray, int8
+        An array where each genotype is coded as a single integer as
+        described above.
+
+    See Also
+    --------
+
+    as_012
+
+    Notes
+    -----
+
+    The default values represent the way genotypes are often called in
+    (haploid) plasmodium samples.
+
+    Applicable to allele depths from haploid or diploid organisms, though
+    designed for haploid organisms. Note that all types of heterozygous
+    genotype (i.e., anything not considered homozygous or missing) will be
+    coded as 1.
+
+    Applicable to biallelic variants only. If third dimension of ad array
+    has length > 2, value in third and subsequent will be ignored.
+
+    The following give some examples of how different combinations of
+    allele depths will be called using the default values of
+    `min_ad_for_minor_call`, `min_ad_for_major_call` and
+    `min_total_ad_for_het_call`
+        [5, 0] = hom_ref
+        [5, 1] = hom_ref
+        [5, 2] = het
+        [0, 5] = hom_alt
+        [1, 5] = hom_alt
+        [2, 5] = het
+        [2, 4] = het
+        [2, 3] = het
+        [2, 2] = missing
+        [4, 1] = missing
+
+    """
+
+    # check input array
+    ad = np.asarray(ad)
+    assert ad.ndim == 3
+
+    # determine genotypes
+    gn = (
+        (
+            (
+                (ad[:, :, 0] >= min_ad_for_minor_call) &
+                (ad[:, :, 1] >= min_ad_for_minor_call) &
+                (ad[:, :, 0] + ad[:, :, 1] >= min_total_ad_for_het_call)
+            ) * het) +   # het calls
+        (
+            (
+                (ad[:, :, 0] >= min_ad_for_major_call) &
+                (ad[:, :, 1] < min_ad_for_minor_call)
+            ) * hom_ref) +   # hom ref calls
+        (
+            (
+                (ad[:, :, 0] < min_ad_for_minor_call) &
+                (ad[:, :, 1] >= min_ad_for_major_call)
+            ) * hom_alt) +   # hom alt calls
+        (
+            (
+                (ad[:, :, 0] <= min_ad_for_major_call) &
+                (ad[:, :, 1] <= min_ad_for_major_call) &
+                (
+                    (ad[:, :, 0] < min_ad_for_minor_call) |
+                    (ad[:, :, 1] < min_ad_for_minor_call)
+                )
+            ) * missing)     # "missing" calls
+    )
+
+    return gn
+
+
+def is_hom_in_pair(gn, samples_indices_1, samples_indices_2, hom_ref=0,
+                      hom_alt=2):
+    """Find calls that are homozygous in two sets of samples.
+
+    Parameters
+    ----------
+
+    gn : array_like, int
+        An array of shape (`n_variants`, `n_samples`) where each element is a
+        genotype called coded as a single integer.
+    samples_indices_1 : array_like, int
+        An array of indices for the first sample in each sample pair.
+    samples_indices_2 : array_like, int
+        An array of indices for the second sample in each sample pair. This
+        must be of the same length as `samples_indices_1`.
+    hom_ref : int, optional
+        Default value for homozygous reference calls.
+    hom_alt : int, optional
+        Default value for homozygous alternative calls.
+
+    Returns
+    -------
+
+    is_hom_in_pair : ndarray, bool
+        An array of shape (`n_variants`, `len(samples_indices_1)`) where
+        elements are True if the genotype call is homozygous for both samples of
+        the pair.
+
+    See Also
+    --------
+    is_discordant_hom, is_nonmissing_in_pair
+
+
+    """
+
+    # check input array
+    gn = np.asarray(gn)
+    assert gn.ndim == 2
+
+    # check sample indices
+    samples_indices_1 = np.asarray(samples_indices_1)
+    samples_indices_2 = np.asarray(samples_indices_2)
+    assert len(samples_indices_1) == len(samples_indices_2)
+
+    # determine genotypes homozygote in both samples of pairs
+    out = (
+        (
+            (gn[:, samples_indices_1] == hom_ref) |
+            (gn[:, samples_indices_1] == hom_alt)
+        ) &
+        (
+            (gn[:, samples_indices_2] == hom_ref) |
+            (gn[:, samples_indices_2] == hom_alt)
+        )
+    )
+    return out
+
+
+def is_discordant_hom(gn, samples_indices_1, samples_indices_2, hom_ref=0,
+                      hom_alt=2):
+    """Find homozygous calls that are discordant between two sets of samples.
+
+    Parameters
+    ----------
+
+    gn : array_like, int
+        An array of shape (`n_variants`, `n_samples`) where each element is a
+        genotype called coded as a single integer.
+    samples_indices_1 : array_like, int
+        An array of indices for the first sample in each sample pair.
+    samples_indices_2 : array_like, int
+        An array of indices for the second sample in each sample pair. This
+        must be of the same length as `samples_indices_1`.
+    hom_ref : int, optional
+        Default value for homozygous reference calls.
+    hom_alt : int, optional
+        Default value for homozygous alternative calls.
+
+    Returns
+    -------
+
+    is_discordant_hom : ndarray, bool
+        An array of shape (`n_variants`, `len(samples_indices_1)`) where
+        elements are True if the genotype call is homozygous for both samples of
+        the pair and discordant between the two samples.
+
+    See Also
+    --------
+    is_hom_in_pair, is_discordant_nonmissing
+
+
+    """
+
+    # check input array
+    gn = np.asarray(gn)
+    assert gn.ndim == 2
+
+    # check sample indices
+    samples_indices_1 = np.asarray(samples_indices_1)
+    samples_indices_2 = np.asarray(samples_indices_2)
+    assert len(samples_indices_1) == len(samples_indices_2)
+
+    # determine genotype discordances
+    out = (
+        (
+            (gn[:, samples_indices_1] == hom_ref) &
+            (gn[:, samples_indices_2] == hom_alt)
+        ) |
+        (
+            (gn[:, samples_indices_1] == hom_alt) &
+            (gn[:, samples_indices_2] == hom_ref)
+        )
+    )
+    return out
+
+
+def is_nonmissing_in_pair(gn, samples_indices_1, samples_indices_2, missing=-1):
+    """Find calls that are non-missing in two sets of samples.
+
+    Parameters
+    ----------
+
+    gn : array_like, int
+        An array of shape (`n_variants`, `n_samples`) where each element is a
+        genotype called coded as a single integer.
+    samples_indices_1 : array_like, int
+        An array of indices for the first sample in each sample pair.
+    samples_indices_2 : array_like, int
+        An array of indices for the second sample in each sample pair. This
+        must be of the same length as `samples_indices_1`.
+    missing : int, optional
+        Default value for missing calls.
+
+    Returns
+    -------
+
+    is_hom_in_pair : ndarray, bool
+        An array of shape (`n_variants`, `len(samples_indices_1)`) where
+        elements are True if the genotype call is non-missing for both samples
+        of the pair.
+
+    See Also
+    --------
+    is_discordant_nonmissing, is_hom_in_pair
+
+
+    """
+
+    # check input array
+    gn = np.asarray(gn)
+    assert gn.ndim == 2
+
+    # check sample indices
+    samples_indices_1 = np.asarray(samples_indices_1)
+    samples_indices_2 = np.asarray(samples_indices_2)
+    assert len(samples_indices_1) == len(samples_indices_2)
+
+    # determine genotypes non-missing in both samples of pairs
+    out = (
+        (gn[:, samples_indices_1] != missing) &
+        (gn[:, samples_indices_2] != missing)
+    )
+    return out
+
+
+def is_discordant_nonmissing(gn, samples_indices_1, samples_indices_2,
+                             missing=-1):
+    """Find non-missing calls that are discordant between two sets of samples.
+
+    Parameters
+    ----------
+
+    gn : array_like, int
+        An array of shape (`n_variants`, `n_samples`) where each element is a
+        genotype called coded as a single integer.
+    samples_indices_1 : array_like, int
+        An array of indices for the first sample in each sample pair.
+    samples_indices_2 : array_like, int
+        An array of indices for the second sample in each sample pair. This
+        must be of the same length as `samples_indices_1`.
+    hom_ref : int, optional
+        Default value for homozygous reference calls.
+    hom_alt : int, optional
+        Default value for homozygous alternative calls.
+    missing : int, optional
+        Default value for missing calls.
+
+    Returns
+    -------
+
+    is_discordant_hom : ndarray, bool
+        An array of shape (`n_variants`, `len(samples_indices_1)`) where
+        elements are True if the genotype call is non-missing for both samples
+        of the pair and discordant between the two samples.
+
+    See Also
+    --------
+    is_called, is_missing, is_het, is_hom_alt
+
+
+    """
+
+    # check input array
+    gn = np.asarray(gn)
+    assert gn.ndim == 2
+
+    # check sample indices
+    samples_indices_1 = np.asarray(samples_indices_1)
+    samples_indices_2 = np.asarray(samples_indices_2)
+    assert len(samples_indices_1) == len(samples_indices_2)
+
+    # determine genotype discordances
+    out = (
+        (gn[:, samples_indices_1] != missing) &
+        (gn[:, samples_indices_2] != missing) &
+        (gn[:, samples_indices_1] != gn[:, samples_indices_2])
+    )
+    return out
+
+
 def pack_diploid(genotypes):
     """
     Pack diploid genotypes into a single byte for each genotype,
