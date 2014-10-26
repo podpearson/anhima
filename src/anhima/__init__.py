@@ -15,6 +15,7 @@ __version__ = '0.9-SNAPSHOT'
 from . import af
 from . import dist
 from . import f2
+from . import filt
 from . import gt
 from . import h5
 from . import ld
@@ -25,4 +26,3 @@ from . import ped
 from . import sf
 from . import sim
 from . import tree
-from . import filt

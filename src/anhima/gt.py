@@ -1012,6 +1012,118 @@ def is_nonmissing_in_pair(gn, samples_indices_1, samples_indices_2, missing=-1):
     return out
 
 
+def is_nonref_in_pair(gn, samples_indices_1, samples_indices_2, hom_ref=0,
+                      missing=-1):
+    """Find calls that are non-reference in at least one of a pair in two sets
+     of samples.
+
+    Parameters
+    ----------
+
+    gn : array_like, int
+        An array of shape (`n_variants`, `n_samples`) where each element is a
+        genotype called coded as a single integer.
+    samples_indices_1 : array_like, int
+        An array of indices for the first sample in each sample pair.
+    samples_indices_2 : array_like, int
+        An array of indices for the second sample in each sample pair. This
+        must be of the same length as `samples_indices_1`.
+    hom_ref : int, optional
+        Default value for homozygous reference calls.
+    missing : int, optional
+        Default value for missing calls.
+
+    Returns
+    -------
+
+    is_hom_in_pair : ndarray, bool
+        An array of shape (`n_variants`, `len(samples_indices_1)`) where
+        elements are True if the genotype call is non-missing for both samples
+        of the pair.
+
+    See Also
+    --------
+    is_discordant_nonmissing, is_hom_in_pair
+
+
+    """
+
+    # check input array
+    gn = np.asarray(gn)
+    assert gn.ndim == 2
+
+    # check sample indices
+    samples_indices_1 = np.asarray(samples_indices_1)
+    samples_indices_2 = np.asarray(samples_indices_2)
+    assert len(samples_indices_1) == len(samples_indices_2)
+
+    # determine genotypes non-missing in both samples of pairs
+    out = (
+        (gn[:, samples_indices_1] != missing) &
+        (gn[:, samples_indices_2] != missing) &
+        (
+            (gn[:, samples_indices_1] != hom_ref) |
+            (gn[:, samples_indices_2] != hom_ref)
+        )
+    )
+    return out
+
+
+def is_segregating(gn, samples_indices=None, hom_ref=0, het=1, hom_alt=2):
+    """Find calls that are segregating in a set of samples.
+
+    Parameters
+    ----------
+
+    gn : array_like, int
+        An array of shape (`n_variants`, `n_samples`) where each element is a
+        genotype called coded as a single integer.
+    samples_indices : array_like, int, optional
+        An array of indices for the first sample in each sample pair.
+    hom_ref : int, optional
+        Default value for homozygous reference calls.
+    missing : int, optional
+        Default value for missing calls.
+
+    Returns
+    -------
+
+    is_hom_in_pair : ndarray, bool
+        An array of shape (`n_variants`, `len(samples_indices_1)`) where
+        elements are True if the genotype call is non-missing for both samples
+        of the pair.
+
+    See Also
+    --------
+    is_discordant_nonmissing, is_hom_in_pair
+
+
+    """
+
+    # check input array
+    gn = np.asarray(gn)
+    assert gn.ndim == 2
+
+    # check sample indices
+    if samples_indices is not None:
+        samples_indices = np.asarray(samples_indices)
+
+        # determine genotypes non-missing in both samples of pairs
+        num_hom_refs = np.sum(gn[:, samples_indices] == hom_ref, axis=1)
+        num_hets = np.sum(gn[:, samples_indices] == het, axis=1)
+        num_hom_alts = np.sum(gn[:, samples_indices] == hom_alt, axis=1)
+    else:
+        num_hom_refs = np.sum(gn == hom_ref, axis=1)
+        num_hets = np.sum(gn == het, axis=1)
+        num_hom_alts = np.sum(gn == hom_alt, axis=1)
+
+    out = (
+        (num_hets > 0) |
+        ((num_hom_refs > 0) & (num_hom_alts > 0))
+    )
+    return out
+
+
 def is_discordant_nonmissing(gn, samples_indices_1, samples_indices_2,
                              missing=-1):
     """Find non-missing calls that are discordant between two sets of samples.
