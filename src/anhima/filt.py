@@ -1,5 +1,5 @@
 """
-Utility functions for working with genotype data.
+Utility functions for filtering variant data.
 
 See also the examples at:
 
@@ -9,13 +9,17 @@ Richard Pearson, 2014
 """
 
 
+from __future__ import division, print_function, unicode_literals, \
+    absolute_import
+
+
 # third party dependencies
 import numpy as np
 import scipy
 import matplotlib.pyplot as plt
 import collections
-import matplotlib as mpl
-import numexpr as ne
+# import matplotlib as mpl
+# import numexpr as ne
 
 
 def plot_diagnostic_track(variable_values, diagnostic_values, track_type=None,
